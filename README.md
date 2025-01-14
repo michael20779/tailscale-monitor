@@ -1,7 +1,8 @@
-# Tailscale Monitor
+![image](https://github.com/user-attachments/assets/6ef16f8d-a2ff-4613-bd1a-5aa9da7f7ae7)# Tailscale Monitor
 
 A web-based monitoring application for your Tailscale network. This tool provides real-time monitoring and visualization of your Tailscale network status, connections, and performance metrics.
-![Uploading image.png…]()
+![image](https://github.com/user-attachments/assets/5af869dd-5a75-4e79-8201-ed8a3ec03172)
+
 
 ## Prerequisites
 
