@@ -12,7 +12,7 @@ A web-based monitoring application for your Tailscale network. This tool provide
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/yourusername/tailscale-monitor.git
+git clone https://github.com/michael20779/tailscale-monitor.git
 cd tailscale-monitor
 ```
 
