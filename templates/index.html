@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tailscale Network Monitor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/Chart.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .card { margin-bottom: 1rem; box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075); }
+        .card-header { background-color: #f8f9fa; }
+        .quality-score { font-size: 2rem; font-weight: bold; }
+        .alert-badge {
+            position: absolute;
+            top: -0.5rem;
+            right: -0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 50%;
+            background-color: #dc3545;
+            color: white;
+            font-size: 0.75rem;
+        }
+        .metric-value { font-size: 1.25rem; font-weight: bold; }
+        .metric-label { font-size: 0.875rem; color: #6c757d; }
+        .event-list { max-height: 300px; overflow-y: auto; }
+        .chart-container { height: 200px; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-3">
+        <!-- Alerts Section -->
+        <div class="row mb-3" id="alerts-section" style="display: none;">
+            <div class="col">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">Active Alerts</h5>
+                        <button class="btn btn-sm btn-primary" onclick="showThresholdModal()">
+                            Manage Thresholds
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="alerts-content"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Threshold Management Modal -->
+        <div class="modal fade" id="thresholdModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Alert Thresholds</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="thresholdForm">
+                            <div class="mb-3">
+                                <label class="form-label">Latency Threshold (ms)</label>
+                                <input type="number" class="form-control" id="latency-threshold" min="0">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">CPU Usage Threshold (%)</label>
+                                <input type="number" class="form-control" id="cpu-threshold" min="0" max="100">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Memory Usage Threshold (%)</label>
+                                <input type="number" class="form-control" id="memory-threshold" min="0" max="100">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Bandwidth Threshold (MB/s)</label>
+                                <input type="number" class="form-control" id="bandwidth-threshold" min="0">
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary" onclick="saveThresholds()">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Stats Row -->
+        <div class="row mb-3">
+            <!-- Network Overview -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Network Overview</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-6 col-lg-3 mb-3">
+                                <div class="metric-label">Upload Rate</div>
+                                <div class="metric-value" id="upload-rate">-</div>
+                            </div>
+                            <div class="col-6 col-lg-3 mb-3">
+                                <div class="metric-label">Download Rate</div>
+                                <div class="metric-value" id="download-rate">-</div>
+                            </div>
+                            <div class="col-6 col-lg-3 mb-3">
+                                <div class="metric-label">Average Latency</div>
+                                <div class="metric-value" id="avg-latency">-</div>
+                            </div>
+                            <div class="col-6 col-lg-3 mb-3">
+                                <div class="metric-label">Connected Peers</div>
+                                <div class="metric-value" id="peer-count">-</div>
+                            </div>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="network-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Resources -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">System Resources</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-6 mb-3">
+                                <div class="metric-label">CPU Usage</div>
+                                <div class="metric-value" id="cpu-usage">-</div>
+                                <div class="progress">
+                                    <div class="progress-bar" id="cpu-bar" role="progressbar"></div>
+                                </div>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <div class="metric-label">Memory Usage</div>
+                                <div class="metric-value" id="memory-usage">-</div>
+                                <div class="progress">
+                                    <div class="progress-bar" id="memory-bar" role="progressbar"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="resources-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Interface Details -->
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Interface Details</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="interface-details">
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="metric-label">Interface Name</div>
+                                    <div class="metric-value" id="interface-name">-</div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="metric-label">Status</div>
+                                    <div class="metric-value" id="interface-status">-</div>
+                                </div>
+                            </div>
+                            <div class="row mt-3">
+                                <div class="col-6">
+                                    <div class="metric-label">Speed</div>
+                                    <div class="metric-value" id="interface-speed">-</div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="metric-label">MTU</div>
+                                    <div class="metric-value" id="interface-mtu">-</div>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <div class="metric-label">IP Addresses</div>
+                                <div id="interface-addresses"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bandwidth Usage -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Bandwidth Usage (Last 5 Minutes)</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Upload</h6>
+                                <div class="metric-label">Average Rate</div>
+                                <div class="metric-value" id="bandwidth-upload-avg">-</div>
+                                <div class="metric-label">Peak Rate</div>
+                                <div class="metric-value" id="bandwidth-upload-peak">-</div>
+                                <div class="metric-label">Total</div>
+                                <div class="metric-value" id="bandwidth-upload-total">-</div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Download</h6>
+                                <div class="metric-label">Average Rate</div>
+                                <div class="metric-value" id="bandwidth-download-avg">-</div>
+                                <div class="metric-label">Peak Rate</div>
+                                <div class="metric-value" id="bandwidth-download-peak">-</div>
+                                <div class="metric-label">Total</div>
+                                <div class="metric-value" id="bandwidth-download-total">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Connected Peers -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Connected Peers</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row" id="peers-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Connection History -->
+        <div class="row mt-3">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Connection History</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="event-list" id="connection-history"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+    <script>
+        // Initialize charts
+        const networkCtx = document.getElementById('network-chart').getContext('2d');
+        const resourcesCtx = document.getElementById('resources-chart').getContext('2d');
+
+        const networkChart = new Chart(networkCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Upload Rate',
+                        borderColor: 'rgb(75, 192, 192)',
+                        data: []
+                    },
+                    {
+                        label: 'Download Rate',
+                        borderColor: 'rgb(255, 99, 132)',
+                        data: []
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        const resourcesChart = new Chart(resourcesCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'CPU Usage',
+                        borderColor: 'rgb(255, 159, 64)',
+                        data: []
+                    },
+                    {
+                        label: 'Memory Usage',
+                        borderColor: 'rgb(153, 102, 255)',
+                        data: []
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
+            }
+        });
+
+        function updatePeerCard(peer, networkQuality) {
+            const qualityScore = networkQuality ? networkQuality.quality_score : null;
+            const qualityColor = qualityScore >= 80 ? 'success' : qualityScore >= 60 ? 'warning' : 'danger';
+            
+            return `
+                <div class="col-md-6 col-lg-4 mb-3">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">${peer.name}</h6>
+                            <button class="btn btn-sm btn-primary" onclick="runPerformanceTest('${peer.ip}')">
+                                Run Tests
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-8">
+                                    <div class="metric-label">IP Address</div>
+                                    <div class="metric-value">${peer.ip}</div>
+                                    <div class="metric-label">Location</div>
+                                    <div class="metric-value">${peer.location.city}, ${peer.location.country}</div>
+                                    <div class="metric-label">OS / Version</div>
+                                    <div class="metric-value">${peer.os} / ${peer.version}</div>
+                                </div>
+                                <div class="col-4 text-center">
+                                    ${qualityScore ? `
+                                        <div class="metric-label">Quality</div>
+                                        <div class="quality-score text-${qualityColor}">${qualityScore}</div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                            ${networkQuality ? `
+                                <div class="mt-3">
+                                    <div class="row">
+                                        <div class="col-6">
+                                            <div class="metric-label">Latency</div>
+                                            <div class="metric-value">${networkQuality.avg_latency}</div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="metric-label">Jitter</div>
+                                            <div class="metric-value">${networkQuality.jitter}</div>
+                                        </div>
+                                    </div>
+                                    <div class="row mt-2">
+                                        <div class="col-12">
+                                            <div class="metric-label">Packet Loss</div>
+                                            <div class="metric-value">${networkQuality.packet_loss}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateConnectionHistory(events) {
+            const container = document.getElementById('connection-history');
+            container.innerHTML = events.map(event => `
+                <div class="alert alert-${event.event_type === 'connected' ? 'success' : 
+                                        event.event_type === 'disconnected' ? 'danger' : 'info'} mb-2">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>${event.peer_name}</strong> (${event.peer_ip})
+                            ${event.event_type === 'connected' ? 'connected' :
+                              event.event_type === 'disconnected' ? 'disconnected' :
+                              'changed status'}
+                        </div>
+                        <small>${event.timestamp}</small>
+                    </div>
+                    ${event.event_type === 'status_changed' ? `
+                        <small class="d-block mt-1">
+                            Latency: ${event.details.latency}, 
+                            OS: ${event.details.os}, 
+                            Version: ${event.details.version}
+                        </small>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        function updateData() {
+            fetch('/stats')
+                .then(response => response.json())
+                .then(data => {
+                    // Update network overview
+                    document.getElementById('upload-rate').textContent = data.upload_rate;
+                    document.getElementById('download-rate').textContent = data.download_rate;
+                    document.getElementById('avg-latency').textContent = data.avg_latency;
+                    document.getElementById('peer-count').textContent = data.peers.length;
+
+                    // Update system resources
+                    document.getElementById('cpu-usage').textContent = `${data.cpu_percent}%`;
+                    document.getElementById('memory-usage').textContent = `${data.memory_percent}%`;
+                    document.getElementById('cpu-bar').style.width = `${data.cpu_percent}%`;
+                    document.getElementById('memory-bar').style.width = `${data.memory_percent}%`;
+
+                    // Update interface details
+                    const interfaceDetails = data.interface_details;
+                    if (interfaceDetails) {
+                        document.getElementById('interface-name').textContent = interfaceDetails.name;
+                        document.getElementById('interface-status').textContent = interfaceDetails.is_up ? 'Up' : 'Down';
+                        document.getElementById('interface-speed').textContent = interfaceDetails.speed;
+                        document.getElementById('interface-mtu').textContent = interfaceDetails.mtu;
+                        
+                        const addressesHtml = interfaceDetails.addresses.map(addr => `
+                            <div class="mb-1">
+                                <small>${addr.family}: ${addr.address}</small>
+                            </div>
+                        `).join('');
+                        document.getElementById('interface-addresses').innerHTML = addressesHtml;
+                    }
+
+                    // Update bandwidth usage
+                    const bandwidthUsage = data.bandwidth_usage;
+                    if (bandwidthUsage) {
+                        document.getElementById('bandwidth-upload-avg').textContent = bandwidthUsage.upload.average;
+                        document.getElementById('bandwidth-upload-peak').textContent = bandwidthUsage.upload.peak;
+                        document.getElementById('bandwidth-upload-total').textContent = bandwidthUsage.upload.total;
+                        document.getElementById('bandwidth-download-avg').textContent = bandwidthUsage.download.average;
+                        document.getElementById('bandwidth-download-peak').textContent = bandwidthUsage.download.peak;
+                        document.getElementById('bandwidth-download-total').textContent = bandwidthUsage.download.total;
+                    }
+
+                    // Update peers
+                    const peersHtml = data.peers.map(peer => 
+                        updatePeerCard(peer, data.network_quality[peer.ip])
+                    ).join('');
+                    document.getElementById('peers-container').innerHTML = peersHtml;
+
+                    // Update connection history
+                    updateConnectionHistory(data.connection_history);
+
+                    // Update charts
+                    const timestamps = data.history.timestamps;
+                    const uploadRates = data.history.upload_rates;
+                    const downloadRates = data.history.download_rates;
+                    const cpuUsage = data.history.cpu_usage;
+                    const memoryUsage = data.history.memory_usage;
+
+                    networkChart.data.labels = timestamps;
+                    networkChart.data.datasets[0].data = uploadRates;
+                    networkChart.data.datasets[1].data = downloadRates;
+                    networkChart.update();
+
+                    resourcesChart.data.labels = timestamps;
+                    resourcesChart.data.datasets[0].data = cpuUsage;
+                    resourcesChart.data.datasets[1].data = memoryUsage;
+                    resourcesChart.update();
+
+                    // Update alerts
+                    updateAlerts(data.alerts);
+                })
+                .catch(error => console.error('Error fetching stats:', error));
+        }
+
+        // Update data every second
+        setInterval(updateData, 1000);
+        updateData();  // Initial update
+
+        // Add performance test modal to the body
+        document.body.insertAdjacentHTML('beforeend', `
+            <div class="modal fade" id="performanceModal" tabindex="-1">
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Performance Test Results</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="testProgress" class="progress mb-3" style="display: none;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+                            </div>
+                            <div id="testResults"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+
+        // Add performance test function
+        async function runPerformanceTest(peerIp) {
+            const modal = new bootstrap.Modal(document.getElementById('performanceModal'));
+            modal.show();
+            
+            const progress = document.getElementById('testProgress');
+            const results = document.getElementById('testResults');
+            
+            progress.style.display = 'block';
+            results.innerHTML = '<div class="text-center">Running performance tests...</div>';
+            
+            try {
+                const response = await fetch(`/performance_test/${peerIp}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    results.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                    return;
+                }
+                
+                let html = '<div class="row">';
+                
+                // Network Quality
+                if (data.network_quality) {
+                    html += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Network Quality</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="metric-label">Quality Score</div>
+                                    <div class="metric-value">${data.network_quality.quality_score}</div>
+                                    <div class="metric-label">Average Latency</div>
+                                    <div class="metric-value">${data.network_quality.avg_latency}</div>
+                                    <div class="metric-label">Packet Loss</div>
+                                    <div class="metric-value">${data.network_quality.packet_loss}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Speed Test
+                if (data.speed_test) {
+                    html += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Network Performance</h6>
+                                </div>
+                                <div class="card-body">
+                                    ${data.speed_test.error ? `
+                                        <div class="alert alert-warning">${data.speed_test.error}</div>
+                                    ` : `
+                                        <div class="metric-label">Estimated Bandwidth</div>
+                                        <div class="metric-value">${data.speed_test.estimated_bandwidth}</div>
+                                        <div class="metric-label">Average Latency</div>
+                                        <div class="metric-value">${data.speed_test.avg_latency}</div>
+                                        <div class="metric-label">Test Success Rate</div>
+                                        <div class="metric-value">${data.speed_test.successful_tests}/${data.speed_test.total_tests} tests</div>
+                                        <div class="metric-label">Packet Size</div>
+                                        <div class="metric-value">${data.speed_test.packet_size}</div>
+                                    `}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Route Quality
+                if (data.route_quality) {
+                    html += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Network Path</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="metric-label">Total Hops</div>
+                                    <div class="metric-value">${data.route_quality.hop_count}</div>
+                                    <div class="table-responsive mt-3">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Hop</th>
+                                                    <th>IP</th>
+                                                    <th>Latency</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                ${data.route_quality.hops.map(hop => `
+                                                    <tr>
+                                                        <td>${hop.number}</td>
+                                                        <td>${hop.ip}</td>
+                                                        <td>${hop.latency}</td>
+                                                    </tr>
+                                                `).join('')}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Connection Stability
+                if (data.stability) {
+                    html += `
+                        <div class="col-md-6 mb-3">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Connection Stability</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="metric-label">Stability Score</div>
+                                    <div class="metric-value">${data.stability.stability_score}</div>
+                                    <div class="metric-label">Average Latency</div>
+                                    <div class="metric-value">${data.stability.avg_latency}</div>
+                                    <div class="metric-label">Jitter</div>
+                                    <div class="metric-value">${data.stability.jitter}</div>
+                                    <div class="metric-label">Packet Loss</div>
+                                    <div class="metric-value">${data.stability.packet_loss}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                html += '</div>';
+                results.innerHTML = html;
+            } catch (error) {
+                results.innerHTML = `<div class="alert alert-danger">Error running performance test: ${error.message}</div>`;
+            } finally {
+                progress.style.display = 'none';
+            }
+        }
+
+        function showThresholdModal() {
+            const modal = new bootstrap.Modal(document.getElementById('thresholdModal'));
+            modal.show();
+        }
+
+        async function setThreshold(metric, value) {
+            try {
+                const response = await fetch(`/set_threshold/${metric}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ value: value })
+                });
+                const data = await response.json();
+                if (data.error) {
+                    alert(data.error);
+                }
+            } catch (error) {
+                console.error('Error setting threshold:', error);
+                alert('Error setting threshold');
+            }
+        }
+
+        async function saveThresholds() {
+            const latency = document.getElementById('latency-threshold').value;
+            const cpu = document.getElementById('cpu-threshold').value;
+            const memory = document.getElementById('memory-threshold').value;
+            const bandwidth = document.getElementById('bandwidth-threshold').value;
+
+            if (latency) await setThreshold('latency', parseFloat(latency));
+            if (cpu) await setThreshold('cpu', parseFloat(cpu));
+            if (memory) await setThreshold('memory', parseFloat(memory));
+            if (bandwidth) await setThreshold('bandwidth', parseFloat(bandwidth) * 1024 * 1024); // Convert MB/s to bytes/s
+
+            const modal = bootstrap.Modal.getInstance(document.getElementById('thresholdModal'));
+            modal.hide();
+        }
+
+        function updateAlerts(alerts) {
+            const alertsSection = document.getElementById('alerts-section');
+            const alertsContent = document.getElementById('alerts-content');
+            
+            if (alerts && alerts.length > 0) {
+                const alertsHtml = alerts.map(alert => `
+                    <div class="alert alert-${alert.severity === 'warning' ? 'danger' : 'warning'} d-flex align-items-center">
+                        <div class="flex-grow-1">
+                            <strong>${alert.type.toUpperCase()}:</strong> ${alert.message}
+                            <br>
+                            <small class="text-muted">Threshold: ${alert.threshold}</small>
+                        </div>
+                    </div>
+                `).join('');
+                
+                alertsContent.innerHTML = alertsHtml;
+                alertsSection.style.display = 'block';
+            } else {
+                alertsSection.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html> 
